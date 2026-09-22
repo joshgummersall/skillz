@@ -22,6 +22,8 @@ Skill directory names are kebab-case and match the `name:` field in the
 - [`cmux-split-agent`](skills/cmux-split-agent/SKILL.md) — open a new
   coding-agent CLI instance in a cmux split pane, running a given prompt or
   skill.
+- [`cmux-workspace-agent`](skills/cmux-workspace-agent/SKILL.md) — same as
+  `cmux-split-agent`, but opens a new cmux workspace instead of a split.
 
 ## Adding a skill
 
