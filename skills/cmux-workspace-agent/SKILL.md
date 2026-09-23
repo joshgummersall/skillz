@@ -35,34 +35,44 @@ Preserve the skill name and any trailing arguments. Pass free-text prompts throu
 
 `cmux-split-agent` needs a create-then-`send`-then-`send-key enter` dance because `--command` on `new-split` wasn't reliably wired up as of cmux 0.64.22. `new-workspace --command` has always worked: it starts the workspace's regular interactive shell and types the text plus one Enter into it at spawn time, so the command runs immediately and the shell stays alive after. One call is enough — don't split it into create-then-`send`.
 
-## Why the prompt goes through a file, not the command line
+## Why the prompt goes through a quoted heredoc, not inline quoting or a file
 
 `--command`'s value gets typed as literal keystrokes into the new workspace's shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text is parsed twice: once by whatever quoting got it into the `cmux new-workspace` call, and again by that destination shell reading it off the terminal. No single escaping scheme survives both. Concretely, `is there a way to avoid casting?` breaks zsh's glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) no matter how correctly the outer quoting was done for the calling shell; embedded `"`, `&`, backticks, or `$(...)` fail the same way.
 
-Avoid this by never typing the prompt text itself: write it to a file with the `Write` tool (a tool parameter, not shell text — no escaping applies), and have `--command` be a short, fixed, character-safe wrapper that reads that file via command substitution:
+A temp file avoids that but trades it for its own portability trap: BSD/macOS `mktemp` only substitutes a trailing `XXXXXX` run when it is the very last thing in the template, so `mktemp foo.XXXXXX.md` silently creates a file named literally `foo.XXXXXX.md` instead of a random one (GNU `mktemp` handles this fine, so it works on Linux and breaks silently on macOS) — plus it leaves a file to clean up.
 
-```
-claude "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"
+Avoid both problems with a quoted heredoc, built in a single `Bash` tool call so no intermediate file or escaping is ever needed. A heredoc whose delimiter is single-quoted (`<<'PROMPT_EOF'`) disables **all** expansion inside its body — `$`, backticks, `"`, `!`, everything is captured completely literally, which is exactly what arbitrary prompt text needs. Wrap the whole thing in an outer quoted heredoc to capture it into a shell variable in one shot, then pass that variable (double-quoted, to preserve its embedded newlines) as `--command`:
+
+```bash
+PAYLOAD=$(cat <<'OUTER_EOF'
+claude "$(cat <<'PROMPT_EOF'
+<verbatim prompt text goes here, completely unescaped>
+PROMPT_EOF
+)"
+OUTER_EOF
+)
+cmux new-workspace --cwd "$PWD" --command "$PAYLOAD" --focus true
 ```
 
-The file path is the only variable part. Generate it with `mktemp` so concurrent invocations can't collide, and it will contain no spaces or quote characters, so the wrapper never needs prompt-specific escaping.
+The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new workspace's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
 
 ## Steps
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
-2. Normalize the skill prefix as above, then create a unique temp file and write the exact agent invocation text into it with the `Write` tool (not a shell heredoc/echo — see above for why):
+2. Normalize the skill prefix as above, then build `$PAYLOAD` in one `Bash` call using the quoted double-heredoc pattern above, substituting `claude` or `codex` for the agent and the normalized invocation text (verbatim, no escaping) for `<verbatim prompt text goes here...>`:
    ```bash
-   mktemp "${TMPDIR:-/tmp}/cmux-agent-prompt.XXXXXX.md"
+   PAYLOAD=$(cat <<'OUTER_EOF'
+   claude "$(cat <<'PROMPT_EOF'
+   /thermo-nuclear-code-quality-review
+   PROMPT_EOF
+   )"
+   OUTER_EOF
+   )
    ```
-   Write the invocation text verbatim as the file's entire content, e.g. `/thermo-nuclear-code-quality-review` (Claude), `$thermo-nuclear-code-quality-review` (Codex), or the raw free-text prompt.
-3. Create the workspace with the wrapper command as its initial input, keeping the caller's working directory so the agent starts with the same project context. Only the fixed wrapper and the mktemp'd path appear here, so plain single-quoting for the calling shell is always sufficient:
+3. Create the workspace with `$PAYLOAD` as its initial input, keeping the caller's working directory so the agent starts with the same project context:
    ```bash
-   cmux new-workspace --cwd "$PWD" --command 'claude "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"' --focus true
+   cmux new-workspace --cwd "$PWD" --command "$PAYLOAD" --focus true
    ```
-   or, for Codex:
-   ```bash
-   cmux new-workspace --cwd "$PWD" --command 'codex "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"' --focus true
-   ```
-   Use only the invocation matching the detected agent, with the real path from step 2 substituted in. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused.
+   Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused.
 
-Do not fall back to create-then-`send`-then-`send-key enter` — see "Why this is one call" above. Do not go back to typing the prompt text directly into `--command` — see "Why the prompt goes through a file" above.
+Do not fall back to create-then-`send`-then-`send-key enter` — see "Why this is one call" above. Do not go back to typing the prompt text directly into `--command`, or through an intermediate file — see "Why the prompt goes through a quoted heredoc" above.
