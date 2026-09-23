@@ -31,22 +31,17 @@ When the user requests a skill, normalize its invocation for the detected agent,
 
 Preserve the skill name and any trailing arguments. Pass free-text prompts through unchanged; do not rewrite arbitrary dollar signs, paths, or built-in slash commands as skills. For other agents, preserve the supplied invocation unless their skill syntax is known.
 
-## Why this needs three calls, not one
+## One call, not three
 
-cmux has no single call that creates a split and runs a command in it:
+`new-split` accepts `--command <text>`: cmux starts the new pane's normal interactive shell and delivers the text plus one Enter at spawn time, so the command runs immediately and no follow-up `send`/`send-key enter` is needed — confirmed working directly (`cmux new-split right --surface <ref> --command "echo hi" --focus true` prints `hi` with no further calls). An older version of this skill claimed `--command` was only wired up for `new-workspace` and that `new-split`/`new-pane` rejected it with `unknown flag`; that is no longer true (and is contradicted by the `cmux` skill's own docs) — don't resurrect the create-then-`send`-then-`send-key enter` dance.
 
-- `new-split`/`new-pane --command` is documented in the `cmux` skill's reference docs, but as of cmux 0.64.22 that flag is only wired up for `new-workspace` — `new-split --help` and `new-pane --help` don't list it, and passing it errors with `unknown flag`.
-- The socket-level `initial_input` param (on `surface.split` etc.) races the new shell's startup — text sent this way can be silently dropped before the shell is ready to read it. Verified via `read-screen` showing no output after using it.
+## Why the prompt is built via a quoted heredoc, not inline-quoted directly
 
-So the reliable sequence is: create an empty split, `send` the invocation, then `send-key enter`, as separate steps once the surface exists.
-
-## Why the prompt goes through a quoted heredoc, not inline quoting or a file
-
-`cmux send` types its argument as literal keystrokes into the destination shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text gets parsed twice: once by whatever quoting you used to pass it to `cmux send`, and again by the destination shell reading it off the terminal. There is no single escaping scheme that survives both. Concretely, `is there a way to avoid casting?` typed into zsh trips glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) even though the outer single-quoting was correct for the calling shell; content with embedded `"`, `&`, backticks, or `$(...)` has the same problem at the destination shell regardless of how carefully it was escaped for the caller.
+`--command`'s value is delivered as literal keystrokes into the new pane's shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text is parsed twice: once by whatever quoting gets it into the `cmux new-split` call, and again by that destination shell reading it off the terminal. There is no single escaping scheme that survives both. Concretely, `is there a way to avoid casting?` typed into zsh trips glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) even though the outer quoting was correct for the calling shell; content with embedded `"`, `&`, backticks, or `$(...)` has the same problem at the destination shell regardless of how carefully it was escaped for the caller.
 
 A temp file avoids that but trades it for its own portability trap: BSD/macOS `mktemp` only substitutes a trailing `XXXXXX` run when it is the very last thing in the template, so `mktemp foo.XXXXXX.md` silently creates a file named literally `foo.XXXXXX.md` instead of a random one (GNU `mktemp` handles this fine, so it works on Linux and breaks silently on macOS) — plus it leaves a file to clean up.
 
-Avoid both problems with a quoted heredoc, built and sent in a single `Bash` tool call so no intermediate file or escaping is ever needed. A heredoc whose delimiter is single-quoted (`<<'PROMPT_EOF'`) disables **all** expansion inside its body — `$`, backticks, `"`, `!`, everything is captured completely literally, which is exactly what arbitrary prompt text needs. Wrap the whole thing in an outer quoted heredoc to capture it into a shell variable in one shot, then send that variable (double-quoted, to preserve its embedded newlines) as the single `cmux send` argument:
+Avoid both problems with a quoted heredoc, built in a single `Bash` tool call so no intermediate file or escaping is ever needed. A heredoc whose delimiter is single-quoted (`<<'PROMPT_EOF'`) disables **all** expansion inside its body — `$`, backticks, `"`, `!`, everything is captured completely literally, which is exactly what arbitrary prompt text needs. Wrap the whole thing in an outer quoted heredoc to capture it into a shell variable in one shot, then pass that variable (double-quoted, to preserve its embedded newlines) as `--command`:
 
 ```bash
 PAYLOAD=$(cat <<'OUTER_EOF'
@@ -56,21 +51,16 @@ PROMPT_EOF
 )"
 OUTER_EOF
 )
-cmux send --surface <new_surface_ref> "$PAYLOAD"
+cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus true
 ```
 
-The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `$PAYLOAD` is typed into the destination shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
+The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new pane's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
 
 ## Steps
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
 2. Get the caller's current surface: `cmux identify --json` → `caller.surface_ref`.
-3. Split off that surface (default direction `right`, override if the user says otherwise):
-   ```bash
-   cmux new-split right --surface <caller_surface_ref> --focus true
-   ```
-   This returns the new surface's ref, e.g. `OK surface:8 workspace:3`.
-4. Normalize the skill prefix as above, then build and send the payload in one `Bash` call using the quoted double-heredoc pattern above, substituting `claude` or `codex` for the agent and the normalized invocation text (verbatim, no escaping) for `<verbatim prompt text goes here...>`:
+3. Normalize the skill prefix as above, then build `$PAYLOAD` and split off the caller's surface in one `Bash` call, using the quoted double-heredoc pattern above (default direction `right`, override if the user says otherwise):
    ```bash
    PAYLOAD=$(cat <<'OUTER_EOF'
    claude "$(cat <<'PROMPT_EOF'
@@ -79,11 +69,8 @@ The outer heredoc is pure text capture at the calling layer — the inner `<<'PR
    )"
    OUTER_EOF
    )
-   cmux send --surface <new_surface_ref> "$PAYLOAD"
+   cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus true
    ```
-5. Press enter to execute it:
-   ```bash
-   cmux send-key --surface <new_surface_ref> enter
-   ```
+   Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. This returns the new surface's ref, e.g. `OK surface:8 workspace:3`.
 
-Do not try to collapse this into one `new-split --command` call — see "Why this needs three calls" above. Do not go back to typing the prompt text directly into the `send` call, or through an intermediate file — see "Why the prompt goes through a quoted heredoc" above.
+Do not fall back to create-then-`send`-then-`send-key enter` — see "One call, not three" above. Do not go back to typing the prompt text directly into `--command`, or through an intermediate file — see "Why the prompt is built via a quoted heredoc" above.
