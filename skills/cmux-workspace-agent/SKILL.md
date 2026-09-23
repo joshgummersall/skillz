@@ -35,18 +35,34 @@ Preserve the skill name and any trailing arguments. Pass free-text prompts throu
 
 `cmux-split-agent` needs a create-then-`send`-then-`send-key enter` dance because `--command` on `new-split` wasn't reliably wired up as of cmux 0.64.22. `new-workspace --command` has always worked: it starts the workspace's regular interactive shell and types the text plus one Enter into it at spawn time, so the command runs immediately and the shell stays alive after. One call is enough — don't split it into create-then-`send`.
 
+## Why the prompt goes through a file, not the command line
+
+`--command`'s value gets typed as literal keystrokes into the new workspace's shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text is parsed twice: once by whatever quoting got it into the `cmux new-workspace` call, and again by that destination shell reading it off the terminal. No single escaping scheme survives both. Concretely, `is there a way to avoid casting?` breaks zsh's glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) no matter how correctly the outer quoting was done for the calling shell; embedded `"`, `&`, backticks, or `$(...)` fail the same way.
+
+Avoid this by never typing the prompt text itself: write it to a file with the `Write` tool (a tool parameter, not shell text — no escaping applies), and have `--command` be a short, fixed, character-safe wrapper that reads that file via command substitution:
+
+```
+claude "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"
+```
+
+The file path is the only variable part. Generate it with `mktemp` so concurrent invocations can't collide, and it will contain no spaces or quote characters, so the wrapper never needs prompt-specific escaping.
+
 ## Steps
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
-2. Normalize the skill prefix as above, then build the agent invocation string. Quote it for the destination shell: single-quote the prompt, escaping each embedded `'` as `'\''`.
-3. Create the workspace with that command as its initial input, keeping the caller's working directory so the agent starts with the same project context:
+2. Normalize the skill prefix as above, then create a unique temp file and write the exact agent invocation text into it with the `Write` tool (not a shell heredoc/echo — see above for why):
    ```bash
-   cmux new-workspace --cwd "$PWD" --command 'claude '\''/thermo-nuclear-code-quality-review'\''' --focus true
+   mktemp "${TMPDIR:-/tmp}/cmux-agent-prompt.XXXXXX.md"
+   ```
+   Write the invocation text verbatim as the file's entire content, e.g. `/thermo-nuclear-code-quality-review` (Claude), `$thermo-nuclear-code-quality-review` (Codex), or the raw free-text prompt.
+3. Create the workspace with the wrapper command as its initial input, keeping the caller's working directory so the agent starts with the same project context. Only the fixed wrapper and the mktemp'd path appear here, so plain single-quoting for the calling shell is always sufficient:
+   ```bash
+   cmux new-workspace --cwd "$PWD" --command 'claude "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"' --focus true
    ```
    or, for Codex:
    ```bash
-   cmux new-workspace --cwd "$PWD" --command 'codex '\''$thermo-nuclear-code-quality-review'\''' --focus true
+   cmux new-workspace --cwd "$PWD" --command 'codex "$(cat /tmp/cmux-agent-prompt.ab12cd.md)"' --focus true
    ```
-   Use only the invocation matching the detected agent. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused. When building the command programmatically, shell-quote the invocation text explicitly — JSON string encoding is not shell quoting.
+   Use only the invocation matching the detected agent, with the real path from step 2 substituted in. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused.
 
-Do not fall back to create-then-`send`-then-`send-key enter` — see "Why this is one call" above.
+Do not fall back to create-then-`send`-then-`send-key enter` — see "Why this is one call" above. Do not go back to typing the prompt text directly into `--command` — see "Why the prompt goes through a file" above.
