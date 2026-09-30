@@ -56,6 +56,10 @@ cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus
 
 The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new pane's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
 
+## Titling
+
+`new-split` has no name flag, so rename the new surface's tab after creating it. Infer the title from the prompt: 2-4 words, Title Case, no quotes or trailing punctuation (for example, `Security Review`, `Fix Login Redirect`). For a bare skill invocation, derive it from the skill name (`/thermo-nuclear-code-quality-review` becomes `Code Quality Review`). The title is a plain short string, so inline quoting is safe.
+
 ## Steps
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
@@ -72,5 +76,9 @@ The outer heredoc is pure text capture at the calling layer — the inner `<<'PR
    cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus true
    ```
    Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. This returns the new surface's ref, e.g. `OK surface:8 workspace:3`.
+4. Title the new tab with the surface ref from step 3's output:
+   ```bash
+   cmux rename-tab --surface surface:8 "<title>"
+   ```
 
 Do not fall back to create-then-`send`-then-`send-key enter` — see "One call, not three" above. Do not go back to typing the prompt text directly into `--command`, or through an intermediate file — see "Why the prompt is built via a quoted heredoc" above.

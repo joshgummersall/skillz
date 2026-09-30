@@ -33,11 +33,11 @@ Preserve the skill name and any trailing arguments. Pass free-text prompts throu
 
 ## Why this is one call, not three
 
-`cmux-split-agent` needs a create-then-`send`-then-`send-key enter` dance because `--command` on `new-split` wasn't reliably wired up as of cmux 0.64.22. `new-workspace --command` has always worked: it starts the workspace's regular interactive shell and types the text plus one Enter into it at spawn time, so the command runs immediately and the shell stays alive after. One call is enough — don't split it into create-then-`send`.
+`cmux-split-agent` needs a create-then-`send`-then-`send-key enter` dance because `--command` on `new-split` wasn't reliably wired up as of cmux 0.64.22. `workspace create --command` has always worked: it starts the workspace's regular interactive shell and types the text plus one Enter into it at spawn time, so the command runs immediately and the shell stays alive after. One call is enough — don't split it into create-then-`send`.
 
 ## Why the prompt goes through a quoted heredoc, not inline quoting or a file
 
-`--command`'s value gets typed as literal keystrokes into the new workspace's shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text is parsed twice: once by whatever quoting got it into the `cmux new-workspace` call, and again by that destination shell reading it off the terminal. No single escaping scheme survives both. Concretely, `is there a way to avoid casting?` breaks zsh's glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) no matter how correctly the outer quoting was done for the calling shell; embedded `"`, `&`, backticks, or `$(...)` fail the same way.
+`--command`'s value gets typed as literal keystrokes into the new workspace's shell (zsh, bash, ...), exactly as if the user had typed it — so the prompt text is parsed twice: once by whatever quoting got it into the `cmux workspace create` call, and again by that destination shell reading it off the terminal. No single escaping scheme survives both. Concretely, `is there a way to avoid casting?` breaks zsh's glob expansion on the bare `?` (`zsh: no matches found: ...casting?`) no matter how correctly the outer quoting was done for the calling shell; embedded `"`, `&`, backticks, or `$(...)` fail the same way.
 
 A temp file avoids that but trades it for its own portability trap: BSD/macOS `mktemp` only substitutes a trailing `XXXXXX` run when it is the very last thing in the template, so `mktemp foo.XXXXXX.md` silently creates a file named literally `foo.XXXXXX.md` instead of a random one (GNU `mktemp` handles this fine, so it works on Linux and breaks silently on macOS) — plus it leaves a file to clean up.
 
@@ -51,10 +51,14 @@ PROMPT_EOF
 )"
 OUTER_EOF
 )
-cmux new-workspace --cwd "$PWD" --command "$PAYLOAD" --focus true
+cmux workspace create --name "<title>" --cwd "$PWD" --command "$PAYLOAD" --focus true
 ```
 
 The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new workspace's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
+
+## Titling
+
+Always pass `--name "<title>"`. Infer the title from the prompt: 2-4 words, Title Case, no quotes or trailing punctuation (for example, `Security Review`, `Fix Login Redirect`). For a bare skill invocation, derive it from the skill name (`/thermo-nuclear-code-quality-review` becomes `Code Quality Review`). The title is a plain short string, so inline quoting is safe.
 
 ## Steps
 
@@ -71,7 +75,7 @@ The outer heredoc is pure text capture at the calling layer — the inner `<<'PR
    ```
 3. Create the workspace with `$PAYLOAD` as its initial input, keeping the caller's working directory so the agent starts with the same project context:
    ```bash
-   cmux new-workspace --cwd "$PWD" --command "$PAYLOAD" --focus true
+   cmux workspace create --name "<title>" --cwd "$PWD" --command "$PAYLOAD" --focus true
    ```
    Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused.
 
