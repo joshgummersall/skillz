@@ -51,10 +51,19 @@ PROMPT_EOF
 )"
 OUTER_EOF
 )
-cmux workspace create --name "<title>" --cwd "$PWD" --command "$PAYLOAD" --focus true
+cmux workspace create --name "<title>" --cwd "<cwd>" --command "$PAYLOAD" --focus true
 ```
 
 The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new workspace's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
+
+## Working directory
+
+Optional. By default the new agent starts in the caller's working directory (the directory this session is running in). Claude may instead pass a distinct directory when the user names one (for example, "in ~/src/other-repo") or the task clearly belongs to another repo or worktree.
+
+- Resolve `~` and relative paths to an absolute path first. Confirm it exists with `test -d`; if not, ask the user instead of guessing.
+- `ARGUMENTS` stays the prompt only. Do not parse a directory out of free text unless the user clearly stated one.
+
+The directory goes to `cmux workspace create --cwd`, which sets it for the workspace's shell. No `cd` is needed.
 
 ## Titling
 
@@ -73,9 +82,9 @@ Always pass `--name "<title>"`. Infer the title from the prompt: 2-4 words, Titl
    OUTER_EOF
    )
    ```
-3. Create the workspace with `$PAYLOAD` as its initial input, keeping the caller's working directory so the agent starts with the same project context:
+3. Create the workspace with `$PAYLOAD` as its initial input, with `<cwd>` set to the caller's working directory by default (so the agent starts with the same project context) or to the distinct directory requested:
    ```bash
-   cmux workspace create --name "<title>" --cwd "$PWD" --command "$PAYLOAD" --focus true
+   cmux workspace create --name "<title>" --cwd "<cwd>" --command "$PAYLOAD" --focus true
    ```
    Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. `--focus true` switches to the new workspace immediately; omit it (or pass `false`) to leave the caller's workspace focused.
 

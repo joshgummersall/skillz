@@ -45,7 +45,7 @@ Avoid both problems with a quoted heredoc, built in a single `Bash` tool call so
 
 ```bash
 PAYLOAD=$(cat <<'OUTER_EOF'
-claude "$(cat <<'PROMPT_EOF'
+cd '<cwd>' && claude "$(cat <<'PROMPT_EOF'
 <verbatim prompt text goes here, completely unescaped>
 PROMPT_EOF
 )"
@@ -56,6 +56,15 @@ cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus
 
 The outer heredoc is pure text capture at the calling layer — the inner `<<'PROMPT_EOF'` inside it is never executed there, only captured as literal characters. When `--command`'s value is typed into the new pane's shell, *that* shell is the one that actually runs the inner heredoc, parsing it exactly once. Pick delimiters unlikely to collide with the prompt content (a fixed distinctive string is normally enough; append the caller's `$$` if you want extra safety) — the only failure mode is a prompt that happens to contain a line identical to the delimiter.
 
+## Working directory
+
+Optional. By default the new agent starts in the caller's working directory (the directory this session is running in). Claude may instead pass a distinct directory when the user names one (for example, "in ~/src/other-repo") or the task clearly belongs to another repo or worktree.
+
+- Resolve `~` and relative paths to an absolute path first. Confirm it exists with `test -d`; if not, ask the user instead of guessing.
+- `ARGUMENTS` stays the prompt only. Do not parse a directory out of free text unless the user clearly stated one.
+
+`new-split` has no `--cwd` flag, so the directory is applied by prefixing the command with `cd <dir> &&`. Always include the `cd`, even for the default, so the result does not depend on what the split inherits.
+
 ## Titling
 
 `new-split` has no name flag, so rename the new surface's tab after creating it. Infer the title from the prompt: 2-4 words, Title Case, no quotes or trailing punctuation (for example, `Security Review`, `Fix Login Redirect`). For a bare skill invocation, derive it from the skill name (`/thermo-nuclear-code-quality-review` becomes `Code Quality Review`). The title is a plain short string, so inline quoting is safe.
@@ -63,11 +72,12 @@ The outer heredoc is pure text capture at the calling layer — the inner `<<'PR
 ## Steps
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
-2. Get the caller's current surface: `cmux identify --json` → `caller.surface_ref`.
-3. Normalize the skill prefix as above, then build `$PAYLOAD` and split off the caller's surface in one `Bash` call, using the quoted double-heredoc pattern above (default direction `right`, override if the user says otherwise):
+2. Pick the working directory (see above): the session's own directory by default, or the distinct one requested.
+3. Get the caller's current surface: `cmux identify --json` → `caller.surface_ref`.
+4. Normalize the skill prefix as above, then build `$PAYLOAD` and split off the caller's surface in one `Bash` call, using the quoted double-heredoc pattern above (default direction `right`, override if the user says otherwise):
    ```bash
    PAYLOAD=$(cat <<'OUTER_EOF'
-   claude "$(cat <<'PROMPT_EOF'
+   cd '/abs/path/to/cwd' && claude "$(cat <<'PROMPT_EOF'
    /thermo-nuclear-code-quality-review
    PROMPT_EOF
    )"
@@ -76,7 +86,7 @@ The outer heredoc is pure text capture at the calling layer — the inner `<<'PR
    cmux new-split right --surface <caller_surface_ref> --command "$PAYLOAD" --focus true
    ```
    Use only the invocation matching the detected agent (`claude`/`codex`) inside `$PAYLOAD`. This returns the new surface's ref, e.g. `OK surface:8 workspace:3`.
-4. Title the new tab with the surface ref from step 3's output:
+5. Title the new tab with the surface ref from step 4's output:
    ```bash
    cmux rename-tab --surface surface:8 "<title>"
    ```
