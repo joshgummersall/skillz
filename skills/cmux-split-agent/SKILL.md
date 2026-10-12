@@ -65,6 +65,16 @@ Optional. By default the new agent starts in the caller's working directory (the
 
 `new-split` has no `--cwd` flag, so the directory is applied by prefixing the command with `cd <dir> &&`. Always include the `cd`, even for the default, so the result does not depend on what the split inherits.
 
+## Model
+
+Optional. By default the new agent uses its own default model. Pass a model only when the user names one (for example, "with opus" or "using gpt-5").
+
+- Claude: `claude --model <model> "$(...)"`.
+- Codex: `codex -m <model> "$(...)"`.
+- Pass the user's model name or alias through unchanged. Do not guess or expand it.
+- `ARGUMENTS` stays the prompt only. Do not parse a model out of free text unless the user clearly stated one.
+- For other agents, ask the user for the flag rather than guessing.
+
 ## Titling
 
 `new-split` has no name flag, so rename the new surface's tab after creating it. Infer the title from the prompt: 2-4 words, Title Case, no quotes or trailing punctuation (for example, `Security Review`, `Fix Login Redirect`). For a bare skill invocation, derive it from the skill name (`/thermo-nuclear-code-quality-review` becomes `Code Quality Review`). The title is a plain short string, so inline quoting is safe.
@@ -73,6 +83,7 @@ Optional. By default the new agent starts in the caller's working directory (the
 
 1. Determine the agent command: `echo "$CMUX_AGENT_LAUNCH_KIND"` (see above).
 2. Pick the working directory (see above): the session's own directory by default, or the distinct one requested.
+   If the user named a model, add its flag after the agent command (see "Model" above).
 3. Get the caller's current surface: `cmux identify --json` → `caller.surface_ref`.
 4. Normalize the skill prefix as above, then build `$PAYLOAD` and split off the caller's surface in one `Bash` call, using the quoted double-heredoc pattern above (default direction `right`, override if the user says otherwise):
    ```bash
