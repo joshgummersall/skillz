@@ -24,6 +24,12 @@ Skill directory names are kebab-case and match the `name:` field in the
   skill.
 - [`cmux-workspace-agent`](skills/cmux-workspace-agent/SKILL.md) — same as
   `cmux-split-agent`, but opens a new cmux workspace instead of a split.
+- [`rex-split-agent`](skills/rex-split-agent/SKILL.md) — Rex equivalent of
+  `cmux-split-agent`: open a coding-agent CLI in a Rex split pane.
+- [`rex-tab-agent`](skills/rex-tab-agent/SKILL.md) — Rex equivalent of
+  `cmux-workspace-agent`: open a coding-agent CLI in a new Rex tab.
+- [`rex-session-agent`](skills/rex-session-agent/SKILL.md) — open a
+  coding-agent CLI in a new Rex session and switch the app to it.
 
 ## Adding a skill
 
