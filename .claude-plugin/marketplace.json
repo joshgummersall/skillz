@@ -1,0 +1,27 @@
+{
+  "name": "skillz",
+  "owner": { "name": "Joshua Gummersall" },
+  "plugins": [
+    {
+      "name": "cmux",
+      "source": "./",
+      "strict": false,
+      "description": "Skills for opening coding-agent sessions in cmux.",
+      "skills": [
+        "./skills/cmux-split-agent",
+        "./skills/cmux-workspace-agent"
+      ]
+    },
+    {
+      "name": "rex",
+      "source": "./",
+      "strict": false,
+      "description": "Skills for opening coding-agent sessions in Rex.",
+      "skills": [
+        "./skills/rex-split-agent",
+        "./skills/rex-tab-agent",
+        "./skills/rex-session-agent"
+      ]
+    }
+  ]
+}
