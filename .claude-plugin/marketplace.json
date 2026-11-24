@@ -1,27 +1,68 @@
 {
   "name": "skillz",
-  "owner": { "name": "Joshua Gummersall" },
+  "description": "Personal Claude Code skills, plus pinned upstream skills (cmux, tuicr, socratic-tutor).",
+  "owner": {
+    "name": "Joshua Gummersall"
+  },
   "plugins": [
     {
-      "name": "cmux",
+      "name": "cmux-custom",
       "source": "./",
       "strict": false,
       "description": "Skills for opening coding-agent sessions in cmux.",
-      "skills": [
-        "./skills/cmux-split-agent",
-        "./skills/cmux-workspace-agent"
-      ]
+      "skills": ["./skills/cmux-split-agent", "./skills/cmux-workspace-agent"]
     },
     {
-      "name": "rex",
+      "name": "rex-custom",
       "source": "./",
       "strict": false,
       "description": "Skills for opening coding-agent sessions in Rex.",
+      "skills": ["./skills/rex-split-agent", "./skills/rex-tab-agent", "./skills/rex-session-agent"]
+    },
+    {
+      "name": "cmux",
+      "description": "Upstream cmux skills (topology, browser, markdown, settings, diagnostics).",
+      "strict": false,
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/manaflow-ai/cmux.git",
+        "path": "skills",
+        "ref": "main",
+        "sha": "9fb414f372c07a1a199632ea4091d4cb3d8caa84"
+      },
       "skills": [
-        "./skills/rex-split-agent",
-        "./skills/rex-tab-agent",
-        "./skills/rex-session-agent"
+        "./cmux",
+        "./cmux-browser",
+        "./cmux-diagnostics",
+        "./cmux-markdown",
+        "./cmux-settings",
+        "./cmux-workspace"
       ]
+    },
+    {
+      "name": "tuicr",
+      "description": "Upstream tuicr review skill.",
+      "strict": false,
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/agavra/tuicr.git",
+        "path": "skills",
+        "ref": "main",
+        "sha": "f098fb8f0911f6b9b14c80e23f79ab084cf5ef91"
+      },
+      "skills": ["./tuicr"]
+    },
+    {
+      "name": "socratic-tutor",
+      "description": "Jane Street socratic tutor skill.",
+      "strict": false,
+      "source": {
+        "source": "url",
+        "url": "https://github.com/janestreet/agent_skills.git",
+        "ref": "main",
+        "sha": "7c6715c29548a3b39d4a9545c698ee4fd17a7213"
+      },
+      "skills": ["./socratic-tutor"]
     }
   ]
 }
